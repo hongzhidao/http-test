@@ -9,8 +9,11 @@ struct config {
     int connections;
     int duration;
     int timeout;
-    char *target;
-    struct url url;
+    char *script;
+    char *url;
+    char *host;
+    char *path;
+    http_field *headers;
     struct addrinfo *addr;
 };
 
@@ -19,9 +22,6 @@ struct thread {
     event_engine *engine;
     uint64_t time;
 };
-
-struct buf *http_request_create(void);
-void http_peer_connect(struct conn *c);
 
 extern struct config cfg;
 

@@ -3,9 +3,9 @@
  */
 #include "headers.h"
 
-#define VERSION "0.1.0"
+#define VERSION "0.2.0"
 
-static void parse_args(int, char **);
+static int config_init(int, char **);
 struct thread *threads_create(void);
 static void *thread_start(void *);
 
@@ -26,7 +26,9 @@ int main(int argc, char **argv)
     uint64_t start, used;
     struct thread *t, *threads;
 
-    parse_args(argc, argv);
+    if (config_init(argc, argv)) {
+        return 1;
+    }
 
     threads = threads_create();
     if (threads == NULL) {
@@ -34,7 +36,7 @@ int main(int argc, char **argv)
     }
 
     printf("Testing %d threads and %d connections\n@ %s for %ds\n",
-           cfg.threads, cfg.connections, cfg.target, cfg.duration);
+           cfg.threads, cfg.connections, cfg.url, cfg.duration);
 
     start = monotonic_time() / 1000;
     signal(SIGINT, sigint_handler);
@@ -56,12 +58,15 @@ int main(int argc, char **argv)
 static void
 print_usage(char *prog, int status)
 {
-    printf("Usage: %s [-t value] [-c value] [-d value] [-v] [-h] url\n", prog);
+    printf("Usage: %s [-t value] [-c value] [-d value] [-H header] [-s file]"
+           " [-v] [-h] url\n", prog);
 
     printf("Options:\n");
     printf(" -t value   Set the value of threads\n");
     printf(" -c value   Set the value of connections\n");
     printf(" -d value   Set the value of duration\n");
+    printf(" -H header  Set the request header\n");
+    printf(" -s file    Set the script file\n");
     printf(" -v         print the version information\n");
     printf(" -h         print this usage message\n");
     printf(" url        The required URL to test\n");
@@ -70,18 +75,15 @@ print_usage(char *prog, int status)
 }
 
 
-static void
+static int
 parse_args(int argc, char **argv)
 {
     int opt, val;
-    char *url;
+    http_field *field, **last_field;
 
-    cfg.threads = 2;
-    cfg.connections = 10;
-    cfg.duration = 10;
-    cfg.timeout = 2000000;
+    last_field = &cfg.headers;
 
-    while ((opt = getopt(argc, argv, "t:c:d:vh")) != -1) {
+    while ((opt = getopt(argc, argv, "t:c:d:H:s:vh")) != -1) {
         switch (opt) {
         case 't':
             val = parse_int(optarg, strlen(optarg));
@@ -110,59 +112,101 @@ parse_args(int argc, char **argv)
             cfg.duration = val;
             break;
 
+        case 'H':
+            field = zcalloc(sizeof(http_field));
+            if (field == NULL) {
+                return ERROR;
+            }
+
+            if (http_header_parse(field, optarg)) {
+                printf("Invalid header %s\n", optarg);
+                goto fail;
+            }
+
+            *last_field = field;
+            last_field = &field->next;
+            break;
+
+        case 's':
+            cfg.script = optarg;
+            break;
+
         case 'v':
             printf("Version %s Copyright (C) Zhidao HONG\n", VERSION);
-            exit(0);
-            return;
+            return DONE;
 
         case 'h':
             print_usage(argv[0], 0);
-            return;
+            return DONE;
 
         default:
             print_usage(argv[0], 1);
-            return;
+            return ERROR;
         }
-    }
-
-    if (cfg.connections < cfg.threads) {
-        printf("Invalid option: connections must be larger than threads\n");
-        exit(1);
-        return;
     }
 
     if (optind == argc) {
         printf("Invalid option: url is required\n");
-        print_usage(argv[0], 1);
-        return;
+        goto fail;
     }
 
-    url = argv[optind];
-
-    if (parse_url(&cfg.url, url)) {
-        printf("Invalid option: url \"%s\" is invalid\n", url);
-        exit(1);
-        return;
+    if (cfg.connections < cfg.threads) {
+        printf("Invalid option: connections must be larger than threads\n");
+        return ERROR;
     }
 
-    cfg.target = url;
+    cfg.url = argv[optind];
 
-    char *host = cfg.url.host;
-    char *service = cfg.url.port ? cfg.url.port : cfg.url.scheme;
-    struct addrinfo *addr = addr_resolve(host, service);
-
-    if (addr == NULL) {
-        char *msg = strerror(errno);
-        printf("connect(\"%s:%s\") failed: %s\n", host, service, msg);
-        exit(1);
-        return;
-    }
-
-    cfg.addr = addr;
-    return;
+    return OK;
 
 fail:
     print_usage(argv[0], 1);
+    return ERROR;
+}
+
+
+static int
+config_init(int argc, char **argv)
+{
+    char *service;
+    struct url u;
+    struct addrinfo *addr;
+
+    cfg.threads = 2;
+    cfg.connections = 10;
+    cfg.duration = 10;
+    cfg.timeout = 2000000;
+
+    switch (parse_args(argc, argv)) {
+    case DONE:
+        exit(0);
+
+    case OK:
+        break;
+
+    case ERROR:
+        return -1;
+    }
+
+    if (parse_url(&u, cfg.url)) {
+        printf("Invalid option: url \"%s\" is invalid\n", cfg.url);
+        return -1;
+    }
+
+    service = u.port ? u.port : u.scheme;
+    addr = addr_resolve(u.host, service);
+
+    if (addr == NULL) {
+        char *msg = strerror(errno);
+        printf("connect(\"%s:%s\") failed: %s\n", u.host, service, msg);
+        return -1;
+    }
+
+    cfg.host = u.host;
+    cfg.path = u.path;
+    cfg.addr = addr;
+
+    return 0;
 }
 
 
@@ -216,13 +260,13 @@ thread_start(void *data)
     for (int i = 0; i < num; i++) {
         c = &conns[i];
 
-        c->write = http_request_create();
-        if (c->write == NULL) {
+        c->read = buf_alloc(8192);
+        if (c->read == NULL) {
             return NULL;
         }
 
-        c->read = buf_alloc(8192);
-        if (c->read == NULL) {
+        c->write = http_request_create();
+        if (c->write == NULL) {
             return NULL;
         }
 

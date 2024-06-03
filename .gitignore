@@ -1,3 +1,7 @@
 test
 tags
 build/
+lua-5.4.6/src/*.o
+lua-5.4.6/src/lua
+lua-5.4.6/src/luac
+lua-5.4.6/src/liblua.a

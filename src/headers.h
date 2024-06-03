@@ -17,6 +17,7 @@ typedef struct hdr_histogram hdr_histogram;
 #include "hdr_histogram.h"
 #include "http_parse.h"
 #include "conn.h"
+#include "http.h"
 #include "status.h"
 #include "main.h"
 

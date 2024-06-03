@@ -6,6 +6,7 @@ HTTP Test Tool is a tool for testing the performance of HTTP servers, supporting
 
 ## Features
 
+- Supports customizing request through Lua script
 - Supports multi-threaded and multi-connection testing
 - Uses epoll to improve performance
 - Outputs detailed test results (requests, transfer rate, latency, etc.)
@@ -24,6 +25,19 @@ git clone https://github.com/hongzhidao/http-test.git
 cd http-test && make
 ```
 
+## Scripting
+
+The `http` table is pre-populated with the values from command line arguments.
+- `http.method`: Set the HTTP method.
+- `http.host`: Set the target host.
+- `http.path`: Set the request path.
+- `http.headers`: Set the request headers, which can overfide `http.host`.
+- `http.body`: Set the request body.
+
+Note:
+- `http.headers` can override `http.host`, so if `Host` is set in the headres, it will override the value of `http.host`.
+- You can enable chunked transfer encoding by setting `http.headers["Transfer-Encoding"] = "chunked"`.
+
 ## Usage
 
 Run HTTP Test Tool and view the usage help:
@@ -35,11 +49,13 @@ Run HTTP Test Tool and view the usage help:
 Output:
 
 ```plaintext
-Usage: ./test [-t value] [-c value] [-d value] [-v] [-h] url
+Usage: ./test [-t value] [-c value] [-d value] [-H header] [-s script] [-v] [-h] url
 Options:
  -t value   Set the value of threads
  -c value   Set the value of connections
  -d value   Set the value of duration
+ -H header  Set the request header
+ -s file    Set the script file
  -v         print the version information
  -h         print this usage message
  url        The required URL to test

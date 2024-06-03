@@ -21,6 +21,7 @@ typedef struct {
 
 struct epoll {
     int epfd;
+    int mode;
     int mevents;
     struct epoll_event *events;
 };

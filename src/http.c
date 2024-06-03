@@ -1,10 +1,14 @@
 #include "headers.h"
+#include <lua.h>
+#include <lualib.h>
+#include <lauxlib.h>
 
+static void http_peer_conn_test(void *, void *);
 static void http_peer_reconnect(struct conn *);
-static void http_peer_connected(void *, void *);
+static void http_peer_init(struct conn *);
 static void http_peer_send(void *, void *);
 static void http_peer_read(void *, void *);
-static void http_peer_init(struct conn *);
+static void http_peer_header_read(struct conn *);
 static void http_peer_header_parse(struct conn *);
 static void http_peer_process(struct conn *);
 static void http_peer_body_read(struct conn *);
@@ -12,30 +16,181 @@ static void http_peer_done(struct conn *);
 static void http_peer_timeout(void *obj, void *data);
 
 
-struct buf *
-http_request_create()
+int
+http_header_parse(http_field *field, char *header)
 {
     char *p;
-    size_t size;
+
+    p = strchr(header, ':');
+    if (p == NULL || p == header) {
+        return -1;
+    }
+
+    field->name = header;
+    field->name_length = p - header;
+
+    do {
+        p++;
+    } while (*p == ' ');
+
+    field->value = p;
+    field->value_length = strlen(p);
+
+    return 0;
+}
+
+
+static struct buf *
+http_request_build(lua_State *L)
+{
+    int chunked;
+    size_t body_length;
     struct buf *b;
+    const char *method, *path, *body, *te, *request;
 
-    size = strlen("GET ") + strlen(cfg.target) + strlen(" HTTP/1.1\r\n");
-    size += strlen("HOST: localhost\r\n") + 2;
+    if (cfg.script && luaL_dofile(L, cfg.script) != LUA_OK) {
+        const char *err = lua_tostring(L, -1);
+        printf("load script %s failed: %s\n", cfg.script, err);
+        return NULL;
+    }
 
-    b = buf_alloc(size);
+    luaL_Buffer buffer;
+    luaL_buffinit(L, &buffer);
+
+    lua_getglobal(L, "http");
+
+    lua_getfield(L, -1, "method");
+    method = lua_tostring(L, -1);
+    lua_pop(L, 1);
+
+    lua_getfield(L, -1, "path");
+    path = lua_tostring(L, -1);
+    lua_pop(L, 1);
+
+    if (method == NULL || path == NULL) {
+        return NULL;
+    }
+
+    luaL_addstring(&buffer, method);
+    luaL_addstring(&buffer, " ");
+    luaL_addstring(&buffer, path);
+    luaL_addstring(&buffer, " HTTP/1.1\r\n");
+
+    lua_getfield(L, -1, "body");
+    body = lua_tostring(L, -1);
+    body_length = body != NULL ? strlen(body) : 0;
+    lua_pop(L, 1);
+
+    lua_getfield(L, -1, "headers");
+
+    lua_getfield(L, -1, "Host");
+    if (lua_isnil(L, -1)) {
+        luaL_addstring(&buffer, "Host: ");
+        luaL_addstring(&buffer, cfg.host);
+        luaL_addstring(&buffer, "\r\n");
+    }
+    lua_pop(L, 1);
+
+    lua_getfield(L, -1, "Transfer-Encoding");
+    te = lua_tostring(L, -1);
+    if (te != NULL && strlen(te) == 7
+        && strncmp(te, "chunked", 7) == 0)
+    {
+        chunked = 1;
+    } else {
+        chunked = 0;
+    }
+    lua_pop(L, 1);
+
+    lua_pushnil(L);
+    while (lua_next(L, -2) != 0) {
+        const char *name = lua_tostring(L, -2);
+        const char *value = lua_tostring(L, -1);
+        if (value == NULL) {
+            return NULL;
+        }
+
+        luaL_addstring(&buffer, name);
+        luaL_addstring(&buffer, ": ");
+        luaL_addstring(&buffer, value);
+        luaL_addstring(&buffer, "\r\n");
+
+        lua_pop(L, 1);
+    }
+    lua_pop(L, 1);
+
+    if (body_length > 0 && !chunked) {
+        char num[20];
+        sprintf(num, "%zu", strlen(body));
+        luaL_addstring(&buffer, "Content-Length: ");
+        luaL_addstring(&buffer, num);
+        luaL_addstring(&buffer, "\r\n");
+    }
+
+    luaL_addstring(&buffer, "\r\n");
+
+    if (body_length > 0) {
+        if (chunked) {
+            char chunk[32];
+            sprintf(chunk, "%zx\r\n", body_length);
+            luaL_addstring(&buffer, chunk);
+            luaL_addstring(&buffer, body);
+            luaL_addstring(&buffer, "\r\n0\r\n\r\n");
+        } else {
+            luaL_addstring(&buffer, body);
+        }
+    }
+
+    luaL_pushresult(&buffer);
+    request = lua_tostring(L, -1);
+    lua_pop(L, 1);
+
+    b = buf_alloc(strlen(request));
     if (b == NULL) {
         return NULL;
     }
 
-    p = cpymem(b->free, "GET ", strlen("GET "));
-    p = cpymem(p, cfg.target, strlen(cfg.target));
-    p = cpymem(p, " HTTP/1.1\r\n", strlen(" HTTP/1.1\r\n"));
-    p = cpymem(p, "HOST: localhost\r\n", strlen("HOST: localhost\r\n"));
-    *p++ = '\r'; *p++ = '\n';
-
-    b->free = p;
+    b->free = cpymem(b->free, (char *) request, strlen(request));
 
     return b;
+}
+
+
+struct buf *
+http_request_create()
+{
+    lua_State *L;
+    http_field *field;
+
+    L = luaL_newstate();
+    if (L == NULL) {
+        return NULL;
+    }
+
+    luaL_openlibs(L);
+
+    lua_newtable(L);
+
+    lua_pushstring(L, "GET");
+    lua_setfield(L, -2, "method");
+
+    lua_pushstring(L, cfg.path);
+    lua_setfield(L, -2, "path");
+
+    lua_pushstring(L, cfg.host);
+    lua_setfield(L, -2, "host");
+
+    lua_newtable(L);
+    for (field = cfg.headers; field != NULL; field = field->next) {
+        lua_pushlstring(L, field->name, field->name_length);
+        lua_pushlstring(L, field->value, field->value_length);
+        lua_settable(L, -3);
+    }
+    lua_setfield(L, -2, "headers");
+
+    lua_setglobal(L, "http");
+
+    return http_request_build(L);
 }
 
 
@@ -67,8 +222,8 @@ http_peer_connect(struct conn *c)
     setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &flags, sizeof(flags));
 
     flags = EVENT_READ | EVENT_WRITE;
-    c->socket.read_handler = http_peer_connected;
-    c->socket.write_handler = http_peer_connected;
+    c->socket.read_handler = http_peer_conn_test;
+    c->socket.write_handler = http_peer_conn_test;
     c->socket.data = c;
 
     if (epoll_create_event(engine, &c->socket, flags)) {
@@ -84,6 +239,34 @@ error:
 
 
 static void
+http_peer_conn_test(void *obj, void *data)
+{
+    struct thread *thr = cur_thread();
+    event_engine *engine = thr->engine;
+    struct conn *c = obj;
+    socklen_t len;
+    int ret, err;
+
+    err = 0;
+    len = sizeof(int);
+    ret = getsockopt(c->socket.fd, SOL_SOCKET, SO_ERROR, (void *) &err, &len);
+    if (ret) {
+        goto fail;
+    }
+
+    c->socket.write_handler = http_peer_send;
+    c->socket.read_handler = http_peer_read;
+    c->timer.handler = http_peer_timeout;
+
+    http_peer_init(c);
+    return;
+
+fail:
+    engine->status->connect_errors++;
+}
+
+
+static void
 http_peer_reconnect(struct conn *c)
 {
     struct thread *thr = cur_thread();
@@ -95,23 +278,19 @@ http_peer_reconnect(struct conn *c)
 
 
 static void
-http_peer_connected(void *obj, void *data)
+http_peer_init(struct conn *c)
 {
     struct thread *thr = cur_thread();
     event_engine *engine = thr->engine;
-    struct conn *c = obj;
-
-    c->start = 0;
 
     c->read->free = c->read->start;
     c->read->pos = c->read->start;
+    c->read_handler = http_peer_header_read;
+
+    c->start = thr->time;
+    timer_add(engine, &c->timer, cfg.timeout / 1000);
+
     c->write->pos = c->write->start;
-
-    c->socket.write_handler = http_peer_send;
-    c->socket.read_handler = http_peer_read;
-    c->read_handler = http_peer_init;
-
-    epoll_create_event(engine, &c->socket, EVENT_READ);
     epoll_create_event(engine, &c->socket, EVENT_WRITE);
 }
 
@@ -123,12 +302,6 @@ http_peer_send(void *obj, void *data)
     event_engine *engine = thr->engine;
     struct conn *c = obj;
 
-    if (c->start == 0) {
-        c->start = thr->time;
-        c->timer.handler = http_peer_timeout;
-        timer_add(engine, &c->timer, cfg.timeout / 1000);
-    }
-
     switch (conn_write(c)) {
     case OK: break;
     case ERROR: goto error;
@@ -136,7 +309,6 @@ http_peer_send(void *obj, void *data)
     }
 
     if (c->write->pos == c->write->free) {
-        c->write->pos = c->write->start;
         epoll_delete_event(engine, &c->socket, EVENT_WRITE);
     }
 
@@ -149,15 +321,12 @@ error:
 
 
 static void
-http_conn_read(struct conn *c)
+http_peer_read(void *obj, void *data)
 {
     struct thread *thr = cur_thread();
     struct event_engine *engine = thr->engine;
+    struct conn *c = obj;
     size_t n;
-
-    if (!c->socket.read_ready) {
-        return;
-    }
 
     switch (conn_read(c, &n)) {
     case OK: break;
@@ -171,7 +340,7 @@ http_conn_read(struct conn *c)
         return;
     }
 
-    if (c->read_handler == http_peer_init) {
+    if (c->read_handler == http_peer_header_read) {
         http_peer_reconnect(c);
         return;
     }
@@ -183,17 +352,7 @@ error:
 
 
 static void
-http_peer_read(void *obj, void *data)
-{
-    struct conn *c = obj;
-
-    c->socket.read_ready = 1;
-    http_conn_read(c);
-}
-
-
-static void
-http_peer_init(struct conn *c)
+http_peer_header_read(struct conn *c)
 {
     memset(&c->parser, 0, sizeof(c->parser));
     memset(&c->chunk_parser, 0, sizeof(c->chunk_parser));
@@ -252,7 +411,9 @@ http_peer_process(struct conn *c)
         c->read->free = c->read->start;
         c->read->pos = c->read->start;
 
-        http_conn_read(c);
+        if (c->socket.read_ready) {
+            http_peer_read(c, NULL);
+        }
     }
 }
 
@@ -296,7 +457,9 @@ http_peer_body_read(struct conn *c)
         c->read->free = c->read->start;
         c->read->pos = c->read->start;
 
-        http_conn_read(c);
+        if (c->socket.read_ready) {
+            http_peer_read(c, NULL);
+        }
         return;
     }
 
@@ -325,24 +488,10 @@ http_peer_done(struct conn *c)
         hdr_record_value(status->latency, elapsed_us);
     }
 
-    c->start = 0;
     timer_remove(engine, &c->timer);
 
     if (parser->keepalive) {
-        c->socket.write_handler = http_peer_send;
-        epoll_create_event(engine, &c->socket, EVENT_WRITE);
-
-        if (c->read->free > c->read->pos) {
-            http_peer_init(c);
-
-        } else {
-            c->read_handler = http_peer_init;
-            c->read->free = c->read->start;
-            c->read->pos = c->read->start;
-
-            http_conn_read(c);
-        }
-
+        http_peer_init(c);
     } else {
         http_peer_reconnect(c);
     }

@@ -120,6 +120,8 @@ parse_url(struct url *u, char *url)
     char *path, *host, *port;
     size_t path_len, host_len, port_len;
 
+    memzero(u, sizeof(struct url));
+
     start = url;
     end = start + strlen(url);
 

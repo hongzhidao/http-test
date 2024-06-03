@@ -29,6 +29,7 @@ conn_read(struct conn *c, size_t *plen)
 
         switch (errno) {
         case EAGAIN:
+            c->socket.read_ready = 0;
             return RETRY;
         case EINTR:
             continue;
@@ -55,7 +56,8 @@ conn_write(struct conn *c)
         }
 
         switch (errno) {
-        case EAGAIN: return RETRY;
+        case EAGAIN:
+            return RETRY;
         case EINTR: continue;
         default: return ERROR;
         }

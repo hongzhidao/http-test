@@ -9,6 +9,12 @@ SRCS = utils.c rbtree.c epoll.c timer.c event_engine.c \
        hdr_histogram.c http_parse.c conn.c http.c status.c main.c
 OBJS = $(patsubst %.c,$(BUILD)/%.o,$(SRCS))
 
+LUA = lua-5.4.6
+DEPS = $(BUILD)/lib/liblua.a
+CFLAGS += -I$(BUILD)/include
+LDFLAGS += -L$(BUILD)/lib
+LIBS := -llua $(LIBS)
+
 all: $(PROG)
 
 $(PROG): $(OBJS)
@@ -20,10 +26,15 @@ clean:
 $(BUILD):
 	mkdir -p $@
 
+$(OBJS): $(DEPS)
+
 $(BUILD)/%.o: %.c | $(BUILD)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 -include $(wildcard $(BUILD)/*.d)
+
+$(BUILD)/lib/liblua.a: $(LUA)
+	$(SHELL) -c "cd $< && make && make install INSTALL_TOP=$(abspath $(BUILD))"
 
 .PHONY: all clean
 vpath %.h src

@@ -8,6 +8,7 @@ epoll_engine_create(event_engine *engine, int mevents)
 {
     struct epoll *epoll = &engine->epoll;
 
+    epoll->mode = EPOLLET | EPOLLRDHUP;
     epoll->mevents = mevents;
 
     epoll->events = zmalloc(sizeof(struct epoll_event) * mevents);
@@ -42,7 +43,7 @@ epoll_create_event(event_engine *engine, file_event *ev, int mask)
     struct epoll_event ee = {0};
     int op;
 
-    ee.events = 0;
+    ee.events = epoll->mode;
     ee.data.ptr = ev;
 
     mask |= ev->mask;
@@ -77,7 +78,7 @@ epoll_delete_event(event_engine *engine, file_event *ev, int mask)
         return;
     }
 
-    ee.events = 0;
+    ee.events = epoll->mode;
     ee.data.ptr = ev;
 
     mask = ev->mask & (~mask);
@@ -118,6 +119,7 @@ epoll_poll(event_engine *engine, int timeout)
         file_event *ev = event->data.ptr;
 
         if (event->events & EPOLLIN) {
+            ev->read_ready = 1;
             ev->read_handler(ev, ev->data);
         }
 

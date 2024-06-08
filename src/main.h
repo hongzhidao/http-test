@@ -20,6 +20,8 @@ struct config {
 struct thread {
     pthread_t handle; 
     event_engine *engine;
+    lua_State *lua;
+    int has_request;
     uint64_t time;
 };
 

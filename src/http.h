@@ -13,7 +13,6 @@ typedef struct http_field {
 } http_field;
 
 int http_header_parse(http_field *field, char *header);
-struct buf *http_request_create(void);
 void http_peer_connect(struct conn *c);
 
 #endif /* HTTP_H */

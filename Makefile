@@ -6,7 +6,7 @@ LIBS = -lm -lpthread -ldl
 
 PROG = test
 SRCS = utils.c rbtree.c epoll.c timer.c event_engine.c \
-       hdr_histogram.c http_parse.c conn.c http.c status.c main.c
+       hdr_histogram.c http_parse.c conn.c http.c script.c status.c main.c
 OBJS = $(patsubst %.c,$(BUILD)/%.o,$(SRCS))
 
 LUA = lua-5.4.6

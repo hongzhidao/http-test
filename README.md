@@ -2,7 +2,7 @@
 
 [![License](https://img.shields.io/badge/license-BSD%202--Clause-blue.svg)](LICENSE)
 
-HTTP Test Tool is a tool for testing the performance of HTTP servers, supporting Linux's epoll. It allows users to set the number of threads, connections, and test duration, and outputs detailed test results.
+HTTP Test Tool is a tool for testing the performance of HTTP servers, supporting Linux's epoll. It allows users to set the number of threads, connections, and test duration, and outputs detailed test results. With Lua scripts, you can configure each HTTP request in detail.
 
 ## Features
 
@@ -29,14 +29,15 @@ cd http-test && make
 
 The `http` table is pre-populated with the values from command line arguments.
 - `http.method`: Set the HTTP method.
-- `http.host`: Set the target host.
 - `http.path`: Set the request path.
-- `http.headers`: Set the request headers, which can overfide `http.host`.
+- `http.headers`: Set the request headers.
 - `http.body`: Set the request body.
+- `http.request`: Define a custom request function.
 
 Note:
-- `http.headers` can override `http.host`, so if `Host` is set in the headres, it will override the value of `http.host`.
+- `http.headers` can override http host whose value is from url.
 - You can enable chunked transfer encoding by setting `http.headers["Transfer-Encoding"] = "chunked"`.
+- The http.lua file is an example to custom request.
 
 ## Usage
 
@@ -89,16 +90,6 @@ Latency Distribution:
   90%  433.00us
   99%  601.00us
 ```
-
-## Contributing
-
-If you would like to contribute to this project, please follow these steps:
-
-1. Fork the repository.
-2. Create a new branch (`git checkout -b feature-branch`).
-3. Commit your changes (`git commit -m 'Add some feature'`).
-4. Push to the branch (`git push origin feature-branch`).
-5. Open a Pull Request.
 
 ## License
 

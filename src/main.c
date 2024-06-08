@@ -229,6 +229,11 @@ threads_create()
             return NULL;
         }
 
+        t->lua = script_create();
+        if (t->lua == NULL) {
+            return NULL;
+        }
+
         if (pthread_create(&t->handle, NULL, thread_start, t)) {
             return NULL;
         }
@@ -247,6 +252,7 @@ thread_start(void *data)
     int num;
 
     thr->engine = t->engine;
+    thr->lua = t->lua;
 
     thr->time = monotonic_time();
     thr->engine->timers.now = thr->time / 1000000;
@@ -257,6 +263,8 @@ thread_start(void *data)
         return NULL;
     }
 
+    thr->has_request = script_has_function(thr->lua, "request");
+
     for (int i = 0; i < num; i++) {
         c = &conns[i];
 
@@ -265,9 +273,12 @@ thread_start(void *data)
             return NULL;
         }
 
-        c->write = http_request_create();
-        if (c->write == NULL) {
-            return NULL;
+        if (!thr->has_request) {
+            lua_getglobal(thr->lua, "http");
+            c->write = script_request(thr->lua);
+            if (c->write == NULL) {
+                return NULL;
+            }
         }
 
         http_peer_connect(c);

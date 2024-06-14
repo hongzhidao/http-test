@@ -99,6 +99,7 @@ stdev_percent(hdr_histogram *hdr, double lower, double upper)
 
 
 static void print_latency(hdr_histogram *hdr) {
+    int i;
     char buf[20];
     double mean, stdev, max;
     double lower, upper, percent;
@@ -120,7 +121,7 @@ static void print_latency(hdr_histogram *hdr) {
 
     printf("\nLatency Distribution:\n");
 
-    for (int i = 0; i < countof(percents); i++) {
+    for (i = 0; i < countof(percents); i++) {
         int percent = percents[i];
         format_time(buf, hdr_value_at_percentile(hdr, percent));
         printf("  %d%%  %s\n", percent, buf);

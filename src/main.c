@@ -249,7 +249,7 @@ thread_start(void *data)
     struct thread *t = data;
     struct thread *thr = cur_thread();
     struct conn *conns, *c;
-    int num;
+    int i, num;
 
     thr->engine = t->engine;
     thr->lua = t->lua;
@@ -265,7 +265,7 @@ thread_start(void *data)
 
     thr->has_request = script_has_function(thr->lua, "request");
 
-    for (int i = 0; i < num; i++) {
+    for (i = 0; i < num; i++) {
         c = &conns[i];
 
         c->read = buf_alloc(8192);

@@ -62,15 +62,15 @@ static void print_request(struct status *status, uint64_t time) {
 
     latency = status->latency;
 
-    uint32_t requests, bytes;
+    uint64_t requests, bytes;
     requests = latency->total_count;
     bytes = status->bytes;
 
     format_byte(buf1, bytes);
     format_time(buf2, time);
 
-    printf("\n%u requests and %s bytes in %s\n", requests, buf1, buf2);
-    printf("  Requests/sec  %u\n", requests / cfg.duration);
+    printf("\n%lu requests and %s bytes in %s\n", requests, buf1, buf2);
+    printf("  Requests/sec  %lu\n", requests / cfg.duration);
     printf("  Transfer/sec  %s\n", format_byte(buf1, bytes / cfg.duration));
 }
 

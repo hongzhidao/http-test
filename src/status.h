@@ -5,7 +5,7 @@
 #define STATUS_H
 
 struct status {
-    uint32_t bytes;
+    uint64_t bytes;
     hdr_histogram *latency;
     uint32_t connect_errors;
     uint32_t read_errors;

@@ -72,7 +72,7 @@ http_peer_connect(struct conn *c)
     c->socket.write_handler = http_peer_conn_test;
     c->socket.data = c;
 
-    if (epoll_create_event(engine, &c->socket, flags)) {
+    if (epoll_add_event(engine, &c->socket, flags)) {
         goto error;
     }
 
@@ -153,7 +153,7 @@ http_peer_init(struct conn *c)
         c->write->pos = c->write->start;
     }
 
-    epoll_create_event(engine, &c->socket, EVENT_WRITE);
+    epoll_add_event(engine, &c->socket, EVENT_WRITE);
 }
 
 
@@ -168,10 +168,6 @@ http_peer_send(void *obj, void *data)
     case OK: break;
     case ERROR: goto error;
     case RETRY: return;
-    }
-
-    if (c->write->pos == c->write->free) {
-        epoll_delete_event(engine, &c->socket, EVENT_WRITE);
     }
 
     return;
@@ -190,12 +186,13 @@ http_peer_read(void *obj, void *data)
     struct conn *c = obj;
     size_t n;
 
-    switch (conn_read(c, &n)) {
+    switch (conn_read(c)) {
     case OK: break;
     case ERROR: goto error;
     case RETRY: return;
     }
 
+    n = c->read->free - c->read->pos;
     if (n > 0) {
         engine->status->bytes += n;
         c->read_handler(c);

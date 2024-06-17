@@ -37,7 +37,7 @@ epoll_engine_free(event_engine *engine)
 
 
 int
-epoll_create_event(event_engine *engine, file_event *ev, int mask)
+epoll_add_event(event_engine *engine, file_event *ev, int mask)
 {
     struct epoll *epoll = &engine->epoll;
     struct epoll_event ee = {0};

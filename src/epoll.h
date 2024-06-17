@@ -28,7 +28,7 @@ struct epoll {
 
 int epoll_engine_create(event_engine *, int);
 void epoll_engine_free(event_engine *);
-int epoll_create_event(event_engine *, file_event *, int);
+int epoll_add_event(event_engine *, file_event *, int);
 void epoll_delete_event(event_engine *, file_event *, int);
 void epoll_poll(event_engine *, int);
 

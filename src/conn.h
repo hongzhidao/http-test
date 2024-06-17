@@ -16,7 +16,7 @@ struct conn {
     void (*read_handler)(struct conn *);
 };
 
-int conn_read(struct conn *, size_t *);
+int conn_read(struct conn *);
 int conn_write(struct conn *);
 
 #endif /* CONN_H */

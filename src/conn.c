@@ -35,9 +35,12 @@ conn_recv(struct conn *c, void *buf, size_t size)
 }
 
 
-int
-conn_read(struct conn *c)
+void
+conn_read(void *obj, void *data)
 {
+    struct thread *thr = cur_thread();
+    event_engine *engine = thr->engine;
+    struct conn *c = obj;
     size_t size;
     ssize_t n;
 
@@ -46,18 +49,20 @@ conn_read(struct conn *c)
 
     if (n > 0) {
         c->read->free += n;
-        return OK;
+        engine->status->bytes += n;
+        c->read_handler(c, NULL);
+        return;
     }
 
     if (n == 0) {
-        return OK;
+        c->close_handler(c, NULL);
+        return;
     }
 
     if (n != RETRY) {
-        return ERROR;
+        engine->status->read_errors++;
+        c->error_handler(c, NULL);
     }
-
-    return RETRY;
 }
 
 
@@ -81,10 +86,12 @@ conn_send(struct conn *c, void *buf, size_t size)
 }
 
 
-int
-conn_write(struct conn *c)
+void
+conn_write(void *obj, void *data)
 {
     struct thread *thr = cur_thread();
+    event_engine *engine = thr->engine;
+    struct conn *c = obj;
     size_t size;
     ssize_t n;
 
@@ -98,13 +105,14 @@ conn_write(struct conn *c)
         }
 
         if (n != RETRY) {
-            return ERROR;
+            engine->status->write_errors++;
+            c->error_handler(c, NULL);
+            return;
         }
 
         epoll_add_event(thr->engine, &c->socket, EVENT_WRITE);
-        return RETRY;
+        return;
     }
 
     epoll_delete_event(thr->engine, &c->socket, EVENT_WRITE);
-    return OK;
 }

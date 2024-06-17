@@ -13,10 +13,12 @@ struct conn {
     struct buf *write;
     struct timer timer;
     off_t remainder;
-    void (*read_handler)(struct conn *);
+    event_handler read_handler;
+    event_handler close_handler;
+    event_handler error_handler;
 };
 
-int conn_read(struct conn *);
-int conn_write(struct conn *);
+void conn_read(void *, void *);
+void conn_write(void *, void *);
 
 #endif /* CONN_H */

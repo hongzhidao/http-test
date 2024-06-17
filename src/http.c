@@ -6,14 +6,14 @@
 static void http_peer_conn_test(void *, void *);
 static void http_peer_reconnect(struct conn *);
 static void http_peer_init(struct conn *);
-static void http_peer_send(void *, void *);
-static void http_peer_read(void *, void *);
-static void http_peer_header_read(struct conn *);
-static void http_peer_header_parse(struct conn *);
+static void http_peer_header_read(void *, void *);
+static void http_peer_header_parse(void *, void *);
 static void http_peer_process(struct conn *);
-static void http_peer_body_read(struct conn *);
+static void http_peer_body_read(void *, void *);
 static void http_peer_done(struct conn *);
-static void http_peer_timeout(void *obj, void *data);
+static void http_peer_timeout(void *, void *);
+static void http_peer_close_handler(void *, void *);
+static void http_peer_error_handler(void *, void *);
 
 
 int
@@ -100,8 +100,8 @@ http_peer_conn_test(void *obj, void *data)
         goto fail;
     }
 
-    c->socket.write_handler = http_peer_send;
-    c->socket.read_handler = http_peer_read;
+    c->socket.write_handler = conn_write;
+    c->socket.read_handler = conn_read;
     c->timer.handler = http_peer_timeout;
 
     http_peer_init(c);
@@ -133,6 +133,8 @@ http_peer_init(struct conn *c)
     c->read->free = c->read->start;
     c->read->pos = c->read->start;
     c->read_handler = http_peer_header_read;
+    c->close_handler = http_peer_close_handler;
+    c->error_handler = http_peer_error_handler;
 
     c->start = thr->time;
     timer_add(engine, &c->timer, cfg.timeout / 1000);
@@ -158,73 +160,23 @@ http_peer_init(struct conn *c)
 
 
 static void
-http_peer_send(void *obj, void *data)
+http_peer_header_read(void *obj, void *data)
 {
-    struct thread *thr = cur_thread();
-    event_engine *engine = thr->engine;
     struct conn *c = obj;
 
-    switch (conn_write(c)) {
-    case OK: break;
-    case ERROR: goto error;
-    case RETRY: return;
-    }
-
-    return;
-
-error:
-    engine->status->write_errors++;
-    http_peer_reconnect(c);
-}
-
-
-static void
-http_peer_read(void *obj, void *data)
-{
-    struct thread *thr = cur_thread();
-    struct event_engine *engine = thr->engine;
-    struct conn *c = obj;
-    size_t n;
-
-    switch (conn_read(c)) {
-    case OK: break;
-    case ERROR: goto error;
-    case RETRY: return;
-    }
-
-    n = c->read->free - c->read->pos;
-    if (n > 0) {
-        engine->status->bytes += n;
-        c->read_handler(c);
-        return;
-    }
-
-    if (c->read_handler == http_peer_header_read) {
-        http_peer_reconnect(c);
-        return;
-    }
-
-error:
-    engine->status->read_errors++;
-    http_peer_reconnect(c);
-}
-
-
-static void
-http_peer_header_read(struct conn *c)
-{
     memset(&c->parser, 0, sizeof(c->parser));
     memset(&c->chunk_parser, 0, sizeof(c->chunk_parser));
     http_parse_init(&c->parser);
-    http_peer_header_parse(c);
+    http_peer_header_parse(c, NULL);
 }
 
 
 static void
-http_peer_header_parse(struct conn *c)
+http_peer_header_parse(void *obj, void *data)
 {
     struct thread *thr = cur_thread();
     event_engine *engine = thr->engine;
+    struct conn *c = obj;
     int ret;
 
     ret = http_parse_response(&c->parser, c->read);
@@ -262,7 +214,7 @@ http_peer_process(struct conn *c)
     c->remainder = parser->chunked ? 1 : parser->content_length_n;
 
     if (c->read->free > c->read->pos) {
-        http_peer_body_read(c);
+        http_peer_body_read(c, NULL);
 
     } else {
         c->read_handler = http_peer_body_read;
@@ -271,20 +223,21 @@ http_peer_process(struct conn *c)
         c->read->pos = c->read->start;
 
         if (c->socket.read_ready) {
-            http_peer_read(c, NULL);
+            conn_read(c, NULL);
         }
     }
 }
 
 
 static void
-http_peer_body_read(struct conn *c)
+http_peer_body_read(void *obj, void *data)
 {
     struct thread *thr = cur_thread();
     event_engine *engine = thr->engine;
-    size_t size;
-    struct buf *b, *out, *next;
+    struct conn *c = obj;
     http_parser *parser;
+    struct buf *b, *out, *next;
+    size_t size;
 
     parser = &c->parser;
 
@@ -317,7 +270,7 @@ http_peer_body_read(struct conn *c)
         c->read->pos = c->read->start;
 
         if (c->socket.read_ready) {
-            http_peer_read(c, NULL);
+            conn_read(c, NULL);
         }
         return;
     }
@@ -361,9 +314,33 @@ static void
 http_peer_timeout(void *obj, void *data)
 {
     struct thread *thr = cur_thread();
+    event_engine *engine = thr->engine;
     struct timer *timer = obj;
     struct conn *c = container_of(timer, struct conn, timer);
 
-    thr->engine->status->timeouts++;
+    engine->status->timeouts++;
+    http_peer_reconnect(c);
+}
+
+
+static void
+http_peer_close_handler(void *obj, void *data)
+{
+    struct thread *thr = cur_thread();
+    event_engine *engine = thr->engine;
+    struct conn *c = obj;
+
+    if (c->read_handler != http_peer_header_read) {
+        engine->status->read_errors++;
+    }
+
+    http_peer_reconnect(c);
+}
+
+
+static void
+http_peer_error_handler(void *obj, void *data)
+{
+    struct conn *c = obj;
     http_peer_reconnect(c);
 }

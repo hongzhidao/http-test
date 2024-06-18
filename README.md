@@ -6,6 +6,7 @@ HTTP Test Tool is a tool for testing the performance of HTTP servers, supporting
 
 ## Features
 
+- Supports HTTP and HTTPS
 - Supports customizing request through Lua script
 - Supports multi-threaded and multi-connection testing
 - Uses epoll to improve performance

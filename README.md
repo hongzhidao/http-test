@@ -14,6 +14,7 @@ HTTP Test Tool is a tool for testing the performance of HTTP servers, supporting
 ## Requirements
 
 - Linux operating system
+- OpenSSL library
 - `make` tool
 
 ## Installation

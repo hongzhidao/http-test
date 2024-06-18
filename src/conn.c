@@ -3,13 +3,24 @@
  */
 #include "headers.h"
 
-static ssize_t conn_recv(struct conn *, void *, size_t);
-static ssize_t conn_send(struct conn *, void *, size_t);
+static int unix_connect(struct conn *, char *);
+static ssize_t unix_recv(struct conn *, void *, size_t);
+static ssize_t unix_send(struct conn *, void *, size_t);
+static void unix_close(struct conn *);
 
 conn_io unix_conn_io = {
-    .recv = conn_recv,
-    .send = conn_send
+    .connect = unix_connect,
+    .recv = unix_recv,
+    .send = unix_send,
+    .close = unix_close,
 };
+
+
+int
+conn_connect(struct conn *c, char *host)
+{
+    return c->io->connect(c, host);
+}
 
 
 void
@@ -75,8 +86,33 @@ conn_write(void *obj, void *data)
 }
 
 
+void
+conn_close(struct conn *c)
+{
+    c->io->close(c);
+}
+
+
+static int
+unix_connect(struct conn *c, char *host)
+{
+    int ret, err;
+    socklen_t len;
+
+    err = 0;
+    len = sizeof(int);
+
+    ret = getsockopt(c->socket.fd, SOL_SOCKET, SO_ERROR, (void *) &err, &len);
+    if (ret || err) {
+        return ERROR;
+    }
+
+    return OK;
+}
+
+
 static ssize_t
-conn_recv(struct conn *c, void *buf, size_t size)
+unix_recv(struct conn *c, void *buf, size_t size)
 {
     ssize_t n;
 
@@ -108,7 +144,7 @@ conn_recv(struct conn *c, void *buf, size_t size)
 
 
 static ssize_t
-conn_send(struct conn *c, void *buf, size_t size)
+unix_send(struct conn *c, void *buf, size_t size)
 {
     ssize_t n;
 
@@ -124,4 +160,11 @@ conn_send(struct conn *c, void *buf, size_t size)
         default: return ERROR;
         }
     }
+}
+
+
+static void
+unix_close(struct conn *c)
+{
+
 }

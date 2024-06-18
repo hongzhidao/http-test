@@ -3,7 +3,7 @@
  */
 #include "headers.h"
 
-#define VERSION "0.2.0"
+#define VERSION "0.4.0"
 
 static int config_init(int, char **);
 struct thread *threads_create(void);
@@ -206,6 +206,13 @@ config_init(int argc, char **argv)
     cfg.path = u.path;
     cfg.addr = addr;
 
+    if (strncmp(u.scheme, "https", 5) == 0) {
+        cfg.ssl = ssl_init();
+        if (cfg.ssl == NULL) {
+            return -1;
+        }
+    }
+
     return 0;
 }
 
@@ -268,7 +275,17 @@ thread_start(void *data)
     for (i = 0; i < num; i++) {
         c = &conns[i];
 
-        c->io = &unix_conn_io;
+        if (cfg.ssl != NULL) {
+            c->ssl = SSL_new(cfg.ssl);
+            if (c->ssl == NULL) {
+                return NULL;
+            }
+
+            c->io = &ssl_conn_io;
+
+        } else {
+            c->io = &unix_conn_io;
+        }
 
         c->read = buf_alloc(8192);
         if (c->read == NULL) {

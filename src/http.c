@@ -90,14 +90,13 @@ http_peer_conn_test(void *obj, void *data)
     struct thread *thr = cur_thread();
     event_engine *engine = thr->engine;
     struct conn *c = obj;
-    socklen_t len;
-    int ret, err;
+    int ret;
 
-    err = 0;
-    len = sizeof(int);
-    ret = getsockopt(c->socket.fd, SOL_SOCKET, SO_ERROR, (void *) &err, &len);
-    if (ret || err) {
-        goto fail;
+    ret = conn_connect(c, cfg.host);
+    switch (ret) {
+    case OK: break;
+    case ERROR: goto fail;
+    case RETRY: return;
     }
 
     c->socket.write_handler = conn_write;
@@ -119,6 +118,7 @@ http_peer_reconnect(struct conn *c)
 
     epoll_delete_event(thr->engine, &c->socket, EVENT_WRITE | EVENT_READ);
     close(c->socket.fd);
+    conn_close(c);
     http_peer_connect(c);
 }
 

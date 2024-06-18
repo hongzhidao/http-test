@@ -7,8 +7,10 @@
 struct conn;
 
 typedef struct {
+    int (*connect)(struct conn *, char *host);
     ssize_t (*recv)(struct conn *, void *, size_t);
     ssize_t (*send)(struct conn *, void *, size_t);
+    void (*close)(struct conn *);
 } conn_io;
 
 struct conn {
@@ -20,14 +22,17 @@ struct conn {
     struct buf *write;
     struct timer timer;
     off_t remainder;
+    void *ssl;
     const conn_io *io;
     event_handler read_handler;
     event_handler close_handler;
     event_handler error_handler;
 };
 
+int conn_connect(struct conn *, char *);
 void conn_read(void *, void *);
 void conn_write(void *, void *);
+void conn_close(struct conn *);
 
 extern conn_io unix_conn_io;
 

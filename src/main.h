@@ -15,6 +15,7 @@ struct config {
     char *path;
     http_field *headers;
     struct addrinfo *addr;
+    SSL_CTX *ssl;
 };
 
 struct thread {

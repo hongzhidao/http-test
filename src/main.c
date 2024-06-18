@@ -268,6 +268,8 @@ thread_start(void *data)
     for (i = 0; i < num; i++) {
         c = &conns[i];
 
+        c->io = &unix_conn_io;
+
         c->read = buf_alloc(8192);
         if (c->read == NULL) {
             return NULL;

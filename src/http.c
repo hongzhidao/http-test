@@ -5,7 +5,7 @@
 
 static void http_peer_conn_test(void *, void *);
 static void http_peer_reconnect(struct conn *);
-static void http_peer_init(struct conn *);
+static void http_peer_init(void *, void *);
 static void http_peer_header_read(void *, void *);
 static void http_peer_header_parse(void *, void *);
 static void http_peer_process(struct conn *);
@@ -43,91 +43,37 @@ http_header_parse(http_field *field, char *header)
 void
 http_peer_connect(struct conn *c)
 {
-    struct thread *thr = cur_thread();
-    event_engine *engine = thr->engine;
-    struct addrinfo *addr = cfg.addr;
-    int fd, flags;
-
-    fd = socket(addr->ai_family, addr->ai_socktype, addr->ai_protocol);
-    if (fd == -1) {
-        return;
-    }
-
-    c->socket.fd = fd;
-
-    flags = fcntl(fd, F_GETFL, 0);
-    fcntl(fd, F_SETFL, flags | O_NONBLOCK);
-
-    if (connect(fd, addr->ai_addr, addr->ai_addrlen) == -1) {
-        if (errno != EINPROGRESS) {
-            goto error;
-        }
-    }
-
-    flags = 1;
-    setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &flags, sizeof(flags));
-
-    flags = EVENT_READ | EVENT_WRITE;
     c->socket.read_handler = http_peer_conn_test;
     c->socket.write_handler = http_peer_conn_test;
     c->socket.data = c;
+    c->read_handler = http_peer_init;
 
-    if (epoll_add_event(engine, &c->socket, flags)) {
-        goto error;
-    }
-
-    return;
-
-error:
-    engine->status->connect_errors++;
-    close(fd);
+    conn_connect(c, cfg.addr);
 }
 
 
 static void
 http_peer_conn_test(void *obj, void *data)
 {
-    struct thread *thr = cur_thread();
-    event_engine *engine = thr->engine;
     struct conn *c = obj;
-    int ret;
-
-    ret = conn_connect(c, cfg.host);
-    switch (ret) {
-    case OK: break;
-    case ERROR: goto fail;
-    case RETRY: return;
-    }
-
-    c->socket.write_handler = conn_write;
-    c->socket.read_handler = conn_read;
-    c->timer.handler = http_peer_timeout;
-
-    http_peer_init(c);
-    return;
-
-fail:
-    engine->status->connect_errors++;
+    conn_connected(c, cfg.host);
 }
 
 
 static void
 http_peer_reconnect(struct conn *c)
 {
-    struct thread *thr = cur_thread();
-
-    epoll_delete_event(thr->engine, &c->socket, EVENT_WRITE | EVENT_READ);
-    close(c->socket.fd);
     conn_close(c);
     http_peer_connect(c);
 }
 
 
 static void
-http_peer_init(struct conn *c)
+http_peer_init(void *obj, void *data)
 {
     struct thread *thr = cur_thread();
     event_engine *engine = thr->engine;
+    struct conn *c = obj;
     struct buf *request;
 
     c->read->free = c->read->start;
@@ -135,6 +81,7 @@ http_peer_init(struct conn *c)
     c->read_handler = http_peer_header_read;
     c->close_handler = http_peer_close_handler;
     c->error_handler = http_peer_error_handler;
+    c->timer.handler = http_peer_timeout;
 
     c->start = thr->time;
     timer_add(engine, &c->timer, cfg.timeout / 1000);
@@ -303,7 +250,7 @@ http_peer_done(struct conn *c)
     timer_remove(engine, &c->timer);
 
     if (parser->keepalive) {
-        http_peer_init(c);
+        http_peer_init(c, NULL);
     } else {
         http_peer_reconnect(c);
     }

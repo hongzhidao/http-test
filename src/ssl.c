@@ -3,13 +3,13 @@
  */
 #include "headers.h"
 
-static int ssl_connect(struct conn *, char *host);
+static int ssl_connected(struct conn *, char *host);
 static ssize_t ssl_recv(struct conn *, void *, size_t);
 static ssize_t ssl_send(struct conn *, void *, size_t);
 static void ssl_close(struct conn *);
 
 conn_io ssl_conn_io = {
-    .connect = ssl_connect,
+    .connected = ssl_connected,
     .recv = ssl_recv,
     .send = ssl_send,
     .close = ssl_close,
@@ -38,8 +38,8 @@ ssl_init()
 }
 
 
-int
-ssl_connect(struct conn *c, char *host)
+static int
+ssl_connected(struct conn *c, char *host)
 {
     int ret;
 

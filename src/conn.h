@@ -7,7 +7,7 @@
 struct conn;
 
 typedef struct {
-    int (*connect)(struct conn *, char *host);
+    int (*connected)(struct conn *, char *host);
     ssize_t (*recv)(struct conn *, void *, size_t);
     ssize_t (*send)(struct conn *, void *, size_t);
     void (*close)(struct conn *);
@@ -29,7 +29,8 @@ struct conn {
     event_handler error_handler;
 };
 
-int conn_connect(struct conn *, char *);
+void conn_connect(struct conn *, struct addrinfo *);
+void conn_connected(struct conn *, char *);
 void conn_read(void *, void *);
 void conn_write(void *, void *);
 void conn_close(struct conn *);

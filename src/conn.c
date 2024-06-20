@@ -3,23 +3,78 @@
  */
 #include "headers.h"
 
-static int unix_connect(struct conn *, char *);
+static int unix_connected(struct conn *, char *);
 static ssize_t unix_recv(struct conn *, void *, size_t);
 static ssize_t unix_send(struct conn *, void *, size_t);
 static void unix_close(struct conn *);
 
 conn_io unix_conn_io = {
-    .connect = unix_connect,
+    .connected = unix_connected,
     .recv = unix_recv,
     .send = unix_send,
     .close = unix_close,
 };
 
 
-int
-conn_connect(struct conn *c, char *host)
+void
+conn_connect(struct conn *c, struct addrinfo *addr)
 {
-    return c->io->connect(c, host);
+    struct thread *thr = cur_thread();
+    event_engine *engine = thr->engine;
+    int fd, flags;
+
+    fd = socket(addr->ai_family, addr->ai_socktype, addr->ai_protocol);
+    if (fd == -1) {
+        return;
+    }
+
+    c->socket.fd = fd;
+
+    flags = fcntl(fd, F_GETFL, 0);
+    fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+
+    flags = 1;
+    setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &flags, sizeof(flags));
+
+    if (connect(fd, addr->ai_addr, addr->ai_addrlen) == -1) {
+        if (errno != EINPROGRESS) {
+            goto error;
+        }
+    }
+
+    flags = EVENT_READ | EVENT_WRITE;
+    if (epoll_add_event(engine, &c->socket, flags)) {
+        goto error;
+    }
+
+    return;
+
+error:
+    engine->status->connect_errors++;
+    close(fd);
+}
+
+
+void
+conn_connected(struct conn *c, char *host)
+{
+    struct thread *thr = cur_thread();
+    event_engine *engine = thr->engine;
+    int ret;
+
+    ret = c->io->connected(c, host);
+
+    if (ret == OK) {
+        c->socket.write_handler = conn_write;
+        c->socket.read_handler = conn_read;
+        c->read_handler(c, NULL);
+        return;
+    }
+
+    if (ret != RETRY) {
+        engine->status->connect_errors++;
+        return;
+    }
 }
 
 
@@ -89,12 +144,16 @@ conn_write(void *obj, void *data)
 void
 conn_close(struct conn *c)
 {
+    struct thread *thr = cur_thread();
+
+    epoll_delete_event(thr->engine, &c->socket, EVENT_WRITE | EVENT_READ);
+    close(c->socket.fd);
     c->io->close(c);
 }
 
 
 static int
-unix_connect(struct conn *c, char *host)
+unix_connected(struct conn *c, char *host)
 {
     int ret, err;
     socklen_t len;

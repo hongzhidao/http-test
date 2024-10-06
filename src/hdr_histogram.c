@@ -7,7 +7,6 @@
 #include <stdlib.h>
 #include <stdbool.h>
 #include <math.h>
-#include <x86intrin.h>
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
@@ -15,6 +14,13 @@
 #include <zlib.h>
 #include <errno.h>
 #include <inttypes.h>
+#if defined(__x86_64__) || defined(_M_X64)
+# include <x86intrin.h>
+#elif defined(__ARM_NEON)
+# include <arm_neon.h>
+#else
+# error "Unsupported architecture"
+#endif
 
 #include "hdr_histogram.h"
 
